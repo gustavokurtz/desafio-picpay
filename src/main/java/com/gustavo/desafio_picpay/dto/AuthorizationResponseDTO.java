@@ -1,6 +1,6 @@
 package com.gustavo.desafio_picpay.dto;
 
-public class AuthorizationResponse {
+public class AuthorizationResponseDTO {
     private String status;
     private Data data;
 

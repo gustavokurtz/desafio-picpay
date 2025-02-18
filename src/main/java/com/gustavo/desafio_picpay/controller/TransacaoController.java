@@ -2,7 +2,8 @@ package com.gustavo.desafio_picpay.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gustavo.desafio_picpay.dto.AuthorizationResponse;
+import com.gustavo.desafio_picpay.dto.AuthorizationResponseDTO;
+import com.gustavo.desafio_picpay.dto.TransacaoResponseDTO;
 import com.gustavo.desafio_picpay.dto.TransferenciaDTO;
 import com.gustavo.desafio_picpay.service.TransacaoService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,8 +15,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
-import java.math.BigDecimal;
-
 @RestController
 @RequestMapping("/transacao")
 public class TransacaoController {
@@ -23,16 +22,19 @@ public class TransacaoController {
     @Autowired
     private TransacaoService transacaoService;
 
-    @PostMapping
-    public String criarTransacao(@RequestBody TransferenciaDTO transferenciaDTO) {
+
+    private TransacaoResponseDTO transacaoResponseDTO;
+
+    @PostMapping("/criar")
+    public TransacaoResponseDTO criarTransacao(@RequestBody TransferenciaDTO transferenciaDTO) {
         // 1. Consulta o serviço autorizador
         RestTemplate restTemplate = new RestTemplate();
         String uriAuth = "https://util.devi.tools/api/v2/authorize";
 
-        ResponseEntity<AuthorizationResponse> responseEntity =
-                restTemplate.exchange(uriAuth, HttpMethod.GET, null, AuthorizationResponse.class);
+        ResponseEntity<AuthorizationResponseDTO> responseEntity =
+                restTemplate.exchange(uriAuth, HttpMethod.GET, null, AuthorizationResponseDTO.class);
 
-        AuthorizationResponse authResponse = responseEntity.getBody();
+        AuthorizationResponseDTO authResponse = responseEntity.getBody();
 
         // 2. Verifica se a autorização foi concedida
         if (authResponse != null && "success".equalsIgnoreCase(authResponse.getStatus()) &&
@@ -46,21 +48,37 @@ public class TransacaoController {
                     transferenciaDTO.getTipoRecebedor()
             );
 
-            // 4. Após a transferência, envia a notificação (utilizando o verbo POST)
+            // 4. Após a transferência, envia a notificação (usando o verbo POST)
             String uriNotificacao = "https://util.devi.tools/api/v1/notify";
-            String respostaNotificacao;
+            String notificationResponseString;
             try {
-                // Caso não haja um corpo específico para a notificação, pode-se enviar null
-                respostaNotificacao = restTemplate.postForObject(uriNotificacao, null, String.class);
+                // Envia POST; se não houver corpo específico, envia null
+                notificationResponseString = restTemplate.postForObject(uriNotificacao, null, String.class);
             } catch (Exception e) {
-                // Aqui você pode definir um fallback ou logar a falha, se necessário
-                respostaNotificacao = "Falha ao enviar notificação: " + e.getMessage();
+                notificationResponseString = "{\"error\": \"Falha ao enviar notificação: " + e.getMessage() + "\"}";
             }
 
-            // 5. Retorna uma resposta combinada ou trate conforme a necessidade
-            return "Transferência executada: " + respostaTransferencia + " | Notificação: " + respostaNotificacao;
+            // Converte a resposta da notificação para objeto (JSON)
+            Object notificationResponse;
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                notificationResponse = mapper.readTree(notificationResponseString);
+            } catch (JsonProcessingException e) {
+                // Se a conversão falhar, retorna a string bruta
+                notificationResponse = notificationResponseString;
+            }
+
+            // 5. Cria e retorna o objeto de resposta combinada
+            TransacaoResponseDTO transacaoResponse = new TransacaoResponseDTO();
+            transacaoResponse.setAuthorizationResponse(authResponse);
+            transacaoResponse.setNotificationResponse(notificationResponse);
+            // Você pode incluir também a resposta da transferência se necessário
+            transacaoResponse.setTransferResponse(respostaTransferencia);
+            return transacaoResponse;
         } else {
             throw new RuntimeException("Transferência não autorizada pelo serviço externo.");
         }
     }
+
+
 }
